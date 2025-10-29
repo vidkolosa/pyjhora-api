@@ -4,3 +4,6 @@ pyswisseph
 setuptools
 wheel
 git+https://github.com/naturalstupid/PyJHora.git
+geonamescache
+timezonefinder
+tzdata
