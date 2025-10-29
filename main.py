@@ -8,44 +8,43 @@ app = FastAPI()
 def health():
     return {"status": "ok"}
 
+
 @app.get("/jhora_info")
 def jhora_info():
-    """
-    Diagnostika: pove, katera verzija PyJHora je nameščena
-    in katere pomembne poti obstajajo v paketu.
-    """
+    import importlib, pkgutil, json
     info = {}
+
     try:
         jhora = importlib.import_module("jhora")
         info["jhora_import"] = "ok"
-        # Poskusi prepoznane module/poti
-        candidates = [
-            "jhora.horoscope",
-            "jhora.horoscope.chart",
-            "jhora.horoscope.chart.charts",
-            "jhora.horoscope.chart.drik",
-            "jhora.panchanga.drik",
-        ]
-        found = {}
-        for c in candidates:
-            try:
-                importlib.import_module(c)
-                found[c] = True
-            except Exception as e:
-                found[c] = False
-        info["modules_found"] = found
-
-        # Verzijica iz distribucije (če obstaja)
-        try:
-            import pkg_resources  # včasih ni nameščen, pa je ok
-            info["version"] = pkg_resources.get_distribution("PyJHora").version
-        except Exception:
-            info["version"] = "unknown"
-
     except Exception as e:
         info["jhora_import"] = f"error: {e}"
+        return info
+
+    # Kateri moduli obstajajo
+    modules = ["jhora.horoscope", "jhora.horoscope.chart"]
+    details = {}
+    for m in modules:
+        try:
+            mod = importlib.import_module(m)
+            attrs = dir(mod)
+            # izpišemo samo "uporabne" stvari (brez __dunder__ imen)
+            public = [a for a in attrs if not a.startswith("_")]
+            details[m] = public[:200]  # omejimo izpis
+        except Exception as e:
+            details[m] = f"error: {e}"
+    info["modules"] = details
+
+    # poskusi prebrati verzijo paketa
+    try:
+        import importlib.metadata as im
+        info["version"] = im.version("PyJHora")
+    except Exception:
+        info["version"] = "unknown"
 
     return info
+
+
 
 @app.get("/chart")
 def chart(
