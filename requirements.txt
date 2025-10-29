@@ -1,4 +1,6 @@
 fastapi
 uvicorn
-PyJHora==3.6.5
 pyswisseph
+setuptools
+wheel
+git+https://github.com/naturalstupid/PyJHora.git
