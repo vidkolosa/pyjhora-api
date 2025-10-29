@@ -1,5 +1,4 @@
 from fastapi import FastAPI, Query
-from astro import generate_chart
 
 app = FastAPI()
 
@@ -10,12 +9,16 @@ def health():
 @app.get("/chart")
 def chart(
     name: str = Query(...),
-    date: str = Query(...),     # format: YYYY-MM-DD
-    time: str = Query(...),     # format: HH:MM (24h)
-    place: str = Query(...),    # format: City, Country
+    date: str = Query(...),   # YYYY-MM-DD
+    time: str = Query(...),   # HH:MM (24h)
+    place: str = Query(...),  # City, Country
 ):
-    try:
-        result = generate_chart(name, date, time, place)
-        return {"data": result}
-    except Exception as e:
-        return {"error": str(e)}
+    # Zaenkrat samo test, da vidimo pot deluje:
+    return {
+        "echo": {
+            "name": name,
+            "date": date,
+            "time": time,
+            "place": place
+        }
+    }
