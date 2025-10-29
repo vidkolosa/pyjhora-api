@@ -14,9 +14,10 @@ def chart(
     place: str = Query(...),  # City, Country
 ):
     try:
-        # ⬇️ Lazy-import, da se app ne podre ob zagonu
-        from jhora.engine.astro_engine import run as jrun
+        # ⬇️ Lazy import pravilnega modula:
+        from astro_engine import run as jrun
         res = jrun(name, date, time, place)
+
         return {
             "ascendant": res["summary"]["ascendant"]["text"],
             "moon_nakshatra": res["summary"]["moon_nakshatra"],
