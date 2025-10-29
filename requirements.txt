@@ -1,4 +1,4 @@
 fastapi
 uvicorn
-PyJHora==3.6.6
+PyJHora==3.6.5
 pyswisseph
