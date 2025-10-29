@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Query
+import astro_engine as ae
 
 app = FastAPI()
 
@@ -9,16 +10,16 @@ def health():
 @app.get("/chart")
 def chart(
     name: str = Query(...),
-    date: str = Query(...),   # YYYY-MM-DD
-    time: str = Query(...),   # HH:MM (24h)
-    place: str = Query(...),  # City, Country
+    date: str = Query(...),
+    time: str = Query(...),
+    place: str = Query(...)
 ):
-    # Zaenkrat samo test, da vidimo pot deluje:
-    return {
-        "echo": {
-            "name": name,
-            "date": date,
-            "time": time,
-            "place": place
+    try:
+        res = ae.run(name, date, time, place)
+        return {
+            "ascendant": res["summary"]["ascendant"]["text"],
+            "moon_nakshatra": res["summary"]["moon_nakshatra"],
+            "chara_karakas": res["summary"]["chara_karakas"]
         }
-    }
+    except Exception as e:
+        return {"error": str(e)}
