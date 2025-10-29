@@ -53,14 +53,20 @@ def chart(
     time: str = Query(...),   # HH:MM (24h)
     place: str = Query(...),  # City, Country
 ):
-    """
-    Začasno: samo echo, dokler ne zaključiva povezave na prave jhora funkcije.
-    """
-    return {
-        "echo": {
-            "name": name,
-            "date": date,
-            "time": time,
-            "place": place
+    try:
+        # lazy import – zmanjšamo možnost sesutja ob zagonu
+        try:
+            from jhora.engine.astro_engine import run as jrun
+        except Exception:
+            # nekateri commiti imajo drugačno pot
+            import importlib
+            jrun = importlib.import_module("jhora.engine.astro_engine").run
+
+        res = jrun(name, date, time, place)
+        return {
+            "ascendant": res["summary"]["ascendant"]["text"],
+            "moon_nakshatra": res["summary"]["moon_nakshatra"],
+            "chara_karakas": res["summary"]["chara_karakas"]
         }
-    }
+    except Exception as e:
+        return {"error": str(e)}
