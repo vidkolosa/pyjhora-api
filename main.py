@@ -1,5 +1,4 @@
 from fastapi import FastAPI, Query
-import astro_engine as ae
 
 app = FastAPI()
 
@@ -10,12 +9,14 @@ def health():
 @app.get("/chart")
 def chart(
     name: str = Query(...),
-    date: str = Query(...),
-    time: str = Query(...),
-    place: str = Query(...)
+    date: str = Query(...),   # YYYY-MM-DD
+    time: str = Query(...),   # HH:MM (24h)
+    place: str = Query(...),  # City, Country
 ):
     try:
-        res = ae.run(name, date, time, place)
+        # ⬇️ Lazy-import, da se app ne podre ob zagonu
+        from jhora.engine.astro_engine import run as jrun
+        res = jrun(name, date, time, place)
         return {
             "ascendant": res["summary"]["ascendant"]["text"],
             "moon_nakshatra": res["summary"]["moon_nakshatra"],
