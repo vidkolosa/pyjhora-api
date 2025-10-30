@@ -21,9 +21,6 @@ def health():
 
 @app.get("/jhora_info")
 def jhora_info():
-    """
-    Minimalna diagnostika: ali je paket jhora sploh uvožen.
-    """
     info = {}
     try:
         import importlib
@@ -45,16 +42,12 @@ def chart(
     date: str = Query(...),     # YYYY-MM-DD
     time: str = Query(...),     # HH:MM (24h)
     place: str = Query(...),    # City, Country (le za echo)
-    lat: float = Query(...),    # +N (npr. Maribor 46.56)
-    lon: float = Query(...),    # +E (Maribor 15.65)
-    tz:  float = Query(...),    # ura offset od UTC (poleti SLO = 2, pozimi = 1)
+    lat: float = Query(...),    # +N
+    lon: float = Query(...),    # +E
+    tz:  float = Query(...),    # ure (npr. SLO poleti 2, pozimi 1)
 ):
-    """
-    Vrne ascendent + Moon nakšatro.
-    1) Najprej poskusi PyJHora (če je engine na voljo)
-    2) Fallback: Swiss Ephemeris (pyswisseph)
-    """
-    # --- POSKUS PyJHora (če kdaj dobiš engine modul) ---
+    """Najprej poskusi PyJHora, sicer Swiss Ephemeris fallback."""
+    # --- poskus PyJHora ---
     try:
         from jhora.engine.astro_engine import run as jrun
         res = jrun(name, date, time, place)
@@ -67,52 +60,35 @@ def chart(
     except Exception:
         pass
 
-    # --- FALLBACK: Swiss Ephemeris ---
+    # --- fallback: Swiss Ephemeris ---
     try:
         import swisseph as swe
-
-        # parse datuma in časa
         y, m, d = [int(x) for x in date.split("-")]
         hh, mm = [int(x) for x in time.split(":")]
         hour_dec = hh + mm/60.0
-
-        # lokalni čas -> UTC
         hour_ut = hour_dec - tz
-
-        # julijanski dan (UT)
         jd_ut = swe.julday(y, m, d, hour_ut, swe.GREG_CAL)
-
-        # sidereal (Lahiri)
         swe.set_sid_mode(swe.SIDM_LAHIRI, 0, 0)
-
-        # Luna (sidereal)
         flag = swe.FLG_SWIEPH | swe.FLG_SIDEREAL
-        moon_lon = swe.calc_ut(jd_ut, swe.MOON, flag)[0][0]  # 0..360
-
-        # Nakšatra
+        moon_lon = swe.calc_ut(jd_ut, swe.MOON, flag)[0][0]
         idx = int(math.floor((moon_lon / 360.0) * 27.0)) % 27
         nak = NAKSHATRAS[idx]
-
-        # Ascendent (Placidus)
         ascmc, _ = swe.houses_ex(jd_ut, lat, lon, b'P')
         asc_deg = ascmc[0]
-
         zodiac = ["Aries","Taurus","Gemini","Cancer","Leo","Virgo",
                   "Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces"]
         asc_sign = zodiac[int(asc_deg // 30)]
-
         return {
             "source": "SwissEphemeris",
             "echo": {"name": name, "place": place},
             "ascendant": {"degree": round(asc_deg, 2), "sign": asc_sign},
             "moon": {"longitude": round(moon_lon, 2), "nakshatra": nak}
         }
-
     except Exception as e:
         return {"error": f"fallback_failed: {e}"}
 
 # -----------------------------
-#   SLO "smart" geocoder
+#   SLO chart_smart (lokalna mini baza)
 # -----------------------------
 
 CITY_DB = {
@@ -144,15 +120,10 @@ def chart_smart(
     time: str = Query(...),
     place: str = Query(...),
 ):
-    """
-    Brez lat/lon/tz za SLO mesta.
-    """
     city = _find_city(place)
     if not city:
         return {"error": "unknown_place", "hint": "Uporabi eno izmed: " + ", ".join(CITY_DB.keys())}
-
     lat, lon, tzid = city
-
     try:
         y, m, d = [int(x) for x in date.split("-")]
         hh, mm = [int(x) for x in time.split(":")]
@@ -160,16 +131,12 @@ def chart_smart(
         tz_offset_hours = local_dt.utcoffset().total_seconds() / 3600.0
     except Exception as e:
         return {"error": f"bad_datetime: {e}"}
-
-    return chart(
-        name=name, date=date, time=time, place=place,
-        lat=lat, lon=lon, tz=tz_offset_hours
-    )
+    return chart(name=name, date=date, time=time, place=place, lat=lat, lon=lon, tz=tz_offset_hours)
 
 # -----------------------------
 #   GLOBAL geocoder (offline)
 #   - geonamescache + timezonefinder
-#   - vrača place_ambiguous, če je več istih imen
+#   - strict: brez države ne gremo naprej
 # -----------------------------
 
 def _geocode_global(place: str) -> Tuple[Optional[Tuple[float, float, str]], Optional[List[str]]]:
@@ -193,41 +160,12 @@ def _geocode_global(place: str) -> Tuple[Optional[Tuple[float, float, str]], Opt
     def name_cc(c):  return f"{c['name']}, {c['countrycode']}"
     def norm_pair(c): return name_cc(c).lower()
 
-    # --- 0) če uporabnik NI navedel države (ni vejice), poskusi najprej "isti naziv v več državah"
-    user_gave_country = ("," in p)
-
-    exact_name_matches = [c for c in cities.values() if norm_name(c) == p]
-    if exact_name_matches and not user_gave_country:
-        # Deduplikacija po državi
-        seen = set()
-        uniq = []
-        for c in exact_name_matches:
-            k = (c["name"], c["countrycode"])
-            if k not in seen:
-                seen.add(k)
-                uniq.append(c)
-        if len(uniq) > 1:
-            options = [
-                name_cc(c)
-                for c in sorted(uniq, key=lambda x: x.get("population", 0), reverse=True)[:7]
-            ]
-            return None, options
-        if len(uniq) == 1:
-            c = uniq[0]
-            lat = float(c["latitude"])
-            lon = float(c["longitude"])
-            tzid = TimezoneFinder().timezone_at(lng=lon, lat=lat)
-            if not tzid:
-                return None, None
-            return (lat, lon, tzid), None
-
-    # --- 1) exact match by "name, CC" ali name
+    # exact "name, CC" ali "name"
     candidates: List[dict] = []
     for c in cities.values():
         if p == norm_pair(c) or p == norm_name(c):
             candidates.append(c)
 
-    # --- 2) contains match
     if not candidates:
         for c in cities.values():
             if p in norm_name(c) or p in norm_pair(c):
@@ -245,8 +183,8 @@ def _geocode_global(place: str) -> Tuple[Optional[Tuple[float, float, str]], Opt
             seen.add(k)
             uniq.append(c)
 
-    # Če več kot 1 unikat IN uporabnik ni navedel države → dvoumno
-    if len(uniq) > 1 and not user_gave_country:
+    # Če več kot 1 unikat → dvoumno
+    if len(uniq) > 1:
         options = [
             name_cc(c)
             for c in sorted(uniq, key=lambda x: x.get("population", 0), reverse=True)[:7]
@@ -254,7 +192,7 @@ def _geocode_global(place: str) -> Tuple[Optional[Tuple[float, float, str]], Opt
         return None, options
 
     # Enoznačno ujemanje
-    c = sorted(uniq, key=lambda x: x.get("population", 0), reverse=True)[0]
+    c = uniq[0]
     lat = float(c["latitude"])
     lon = float(c["longitude"])
     tzid = TimezoneFinder().timezone_at(lng=lon, lat=lat)
@@ -267,22 +205,24 @@ def chart_global(
     name: str,
     date: str,   # YYYY-MM-DD
     time: str,   # HH:MM
-    place: str,  # "City" ali "City, Country"
+    place: str,  # zahtevamo "City, CC"
 ):
     """
-    Internacionalno:
+    STRIKTNO: brez države (vejica) vrnemo 'country_required'.
+    Nato:
       - geonamescache → lat/lon
       - timezonefinder → tzid
       - ZoneInfo → DST/offset
-      - če je več mest z istim imenom in ni podane države → place_ambiguous
     """
-    geo, options = _geocode_global(place.strip())
+    raw = (place or "").strip()
+    if "," not in raw:
+        return {"error": "country_required", "hint": "Uporabi 'City, CC' (npr. 'Springfield, US' ali 'Paris, FR')"}
 
+    geo, options = _geocode_global(raw.lower())
     if options:
         return {"error": "place_ambiguous", "options": options}
-
     if not geo:
-        return {"error": "place_not_found", "hint": "Poskusi 'City, CC' (npr. 'Springfield, US')"}
+        return {"error": "place_not_found", "hint": "Uporabi 'City, CC' (npr. 'Springfield, US')"}
 
     lat, lon, tzid = geo
 
@@ -294,7 +234,4 @@ def chart_global(
     except Exception as e:
         return {"error": f"bad_datetime: {e}"}
 
-    return chart(
-        name=name, date=date, time=time, place=place,
-        lat=lat, lon=lon, tz=tz_offset_hours
-    )
+    return chart(name=name, date=date, time=time, place=place, lat=lat, lon=lon, tz=tz_offset_hours)
