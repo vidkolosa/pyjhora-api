@@ -139,12 +139,22 @@ def chart(
         zodiac = ["Aries","Taurus","Gemini","Cancer","Leo","Virgo",
                   "Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces"]
         asc_sign = zodiac[int(asc_deg // 30)]
+       
+        # ---- DODANO: ČARA-KARAKAS ----
+        # pripravi JD še enkrat (že imamo jd_ut)
+        lons = _sidereal_longitudes(jd_ut, use_true_node=True)  # True node; zamenjaj na False, če želiš Mean
+        kar7, kar8 = _chara_karakas_from_lons(lons, include_rahu=True)
+
         return {
             "source": "SwissEphemeris",
             "echo": {"name": name, "place": place},
             "ascendant": {"degree": round(asc_deg, 2), "sign": asc_sign},
-            "moon": {"longitude": round(moon_lon, 2), "nakshatra": nak}
+            "moon": {"longitude": round(moon_lon, 2), "nakshatra": nak},
+            "chara_karakas_7": kar7,     # 7-karak (brez Rahuja)
+            "chara_karakas_8": kar8      # 8-karak (z Rahujem) – lahko je None, če kaj manjka
         }
+
+    
     except Exception as e:
         return {"error": f"fallback_failed: {e}"}
 
