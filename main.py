@@ -42,28 +42,43 @@ def _sidereal_longitudes(jd_ut: float, use_true_node: bool = True):
         lons[name] = swe.calc_ut(jd_ut, bid, flag)[0][0]  # 0..360 sidereal
     return lons
 
-def _chara_karakas_from_lons(lons: dict, include_rahu: bool = True):
+def _chara_karakas_from_lons(lons: dict):
     """
-    Rangiranje po ABSOLUTNIH sidereal stopinjah (0–360) – JHora-style.
-    Rahu: uporabimo obrat v znaku (30 - (lon % 30)).
+    Jaimini Chara Karakas po sistemu Jagannath Hora 7.32:
+      - 8-karaka shema (Rahu vključen, Ketu izključen)
+      - Stopinje znotraj znaka (0–30°)
+      - Rahu: 30 - (lon % 30)
+    Vrne (kar7, kar8)
     """
+    def deg_in_sign(l):
+        return l % 30.0
+
     items = []
     for name, lon in lons.items():
-        if name == "Rahu" and not include_rahu:
+        if name == "Ketu":
             continue
-        if name == "Rahu" and include_rahu:
-            # obrnjena stopinja v znaku
-            eff = (math.floor(lon/30.0) * 30.0) + (30.0 - (lon % 30.0))
+        if name == "Rahu":
+            val = 30.0 - (lon % 30.0)
         else:
-            eff = lon % 360.0
-        items.append((name, eff))
+            val = deg_in_sign(lon)
+        items.append((name, val))
 
-    items.sort(key=lambda x: x[1], reverse=True)
-    labels7 = ["AK", "AmK", "BK", "MK", "PK", "GK", "DK"]
-    labels8 = ["AK", "AmK", "BK", "MK", "PK", "GK", "DK", "PiK"]
-    out7 = {labels7[i]: items[i][0] for i in range(min(7, len(items)))}
-    out8 = {labels8[i]: items[i][0] for i in range(8)} if include_rahu and len(items) >= 8 else None
-    return out7, out8
+    # 8-karaka (Sun..Saturn + Rahu)
+    eight_set = {"Sun","Moon","Mars","Mercury","Jupiter","Venus","Saturn","Rahu"}
+    items8 = [(n,m) for n,m in items if n in eight_set]
+    items8.sort(key=lambda x: x[1], reverse=True)
+    labels8 = ["AK","AmK","BK","MK","PK","GK","DK","PiK"]
+    kar8 = {labels8[i]: items8[i][0] for i in range(min(8, len(items8)))}
+
+    # 7-karaka = isto, brez Rahu
+    seven_set = eight_set - {"Rahu"}
+    items7 = [(n,m) for n,m in items if n in seven_set]
+    items7.sort(key=lambda x: x[1], reverse=True)
+    labels7 = ["AK","AmK","BK","MK","PK","GK","DK"]
+    kar7 = {labels7[i]: items7[i][0] for i in range(min(7, len(items7)))}
+
+    return kar7, kar8
+
 
 
 
