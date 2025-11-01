@@ -17,14 +17,11 @@ NAKSHATRAS = [
 
 # -----------------------------
 #   Jaimini ČARA-KARAKAS (JHora 7.32)
-#   - Lahiri ayanamša
-#   - Mean Node (Rahu)
-#   - Rang po 0–30° v znaku; Rahu = 30 − (lon % 30); Ketu izključen
 # -----------------------------
 def _sidereal_longitudes_mean_node(jd_ut: float):
     """Sidereal dolžine (0..360) za Sun..Saturn + Rahu (MEAN NODE), Lahiri."""
     import swisseph as swe
-    swe.set_sid_mode(swe.SIDM_LAHIRI, 0, 0)   # JHora default: Lahiri (Chitrapaksha)
+    swe.set_sid_mode(swe.SIDM_LAHIRI, 0, 0)
     flag = swe.FLG_SWIEPH | swe.FLG_SIDEREAL
 
     bodies = {
@@ -35,7 +32,7 @@ def _sidereal_longitudes_mean_node(jd_ut: float):
         "Jupiter": swe.JUPITER,
         "Venus": swe.VENUS,
         "Saturn": swe.SATURN,
-        "Rahu": swe.MEAN_NODE,  # 🔒 fiksno MEAN NODE, kot JHora 7.32
+        "Rahu": swe.MEAN_NODE,   # 🔒 fiksno Mean Node kot v JHora 7.32
     }
 
     lons = {}
@@ -43,93 +40,71 @@ def _sidereal_longitudes_mean_node(jd_ut: float):
         lons[name] = swe.calc_ut(jd_ut, bid, flag)[0][0]
     return lons
 
+
 def _chara_karakas_from_lons(lons: dict):
-    """
-    Jaimini Chara Karakas po Jagannath Hora 7.32:
-      - 8-karaka: Sun..Saturn + Rahu (Ketu izključen)
-      - 7-karaka: Sun..Saturn (brez Rahu)
-      - Rang po stopinjah ZNOTRAJ znaka (0–30)
-      - Rahu: 30 - (lon % 30)
-    Vrne (kar7, kar8)
-    """
-    def deg_in_sign(lon: float) -> float:
-        return lon % 30.0
+    """Izračun 7- in 8-karaka sheme po JHora 7.32 (Rahu = 30 − lon % 30)."""
+    def deg_in_sign(lon): return lon % 30.0
 
     pairs = []
     for name, lon in lons.items():
         if name == "Ketu":
-            continue  # nikoli
-        if name == "Rahu":
-            merit = 30.0 - (lon % 30.0)
-        else:
-            merit = deg_in_sign(lon)
-        pairs.append((name, merit))
+            continue
+        val = 30.0 - (lon % 30.0) if name == "Rahu" else deg_in_sign(lon)
+        pairs.append((name, val))
 
     # 8-karaka (Sun..Saturn + Rahu)
-    eight_set = {"Sun","Moon","Mars","Mercury","Jupiter","Venus","Saturn","Rahu"}
-    items8 = [(n, m) for n, m in pairs if n in eight_set]
-    items8.sort(key=lambda x: x[1], reverse=True)
     labels8 = ["AK","AmK","BK","MK","PK","GK","DK","PiK"]
-    kar8 = {labels8[i]: items8[i][0] for i in range(min(8, len(items8)))}
+    eight = {labels8[i]: p[0] for i, p in enumerate(sorted(pairs, key=lambda x: x[1], reverse=True)[:8])}
 
     # 7-karaka (brez Rahu)
-    seven_set = eight_set - {"Rahu"}
-    items7 = [(n, m) for n, m in pairs if n in seven_set]
-    items7.sort(key=lambda x: x[1], reverse=True)
+    pairs7 = [p for p in pairs if p[0] != "Rahu"]
     labels7 = ["AK","AmK","BK","MK","PK","GK","DK"]
-    kar7 = {labels7[i]: items7[i][0] for i in range(min(7, len(items7)))}
+    seven = {labels7[i]: p[0] for i, p in enumerate(sorted(pairs7, key=lambda x: x[1], reverse=True)[:7])}
 
-    return kar7, kar8
+    return seven, eight
+
 
 # -----------------------------
 #  Health / Info
 # -----------------------------
 @app.get("/health")
-def health():
-    return {"status": "ok"}
+def health(): return {"status": "ok"}
 
 @app.get("/jhora_info")
 def jhora_info():
     info = {}
     try:
-        import importlib
-        import importlib.metadata as im
+        import importlib, importlib.metadata as im
         importlib.import_module("jhora")
         info["jhora_import"] = "ok"
-        try:
-            info["version"] = im.version("PyJHora")
-        except Exception:
-            info["version"] = "unknown"
+        info["version"] = im.version("PyJHora")
     except Exception as e:
         info["jhora_import"] = f"error: {e}"
         info["version"] = "unknown"
     return info
 
+
 # -----------------------------
-#   /chart (PyJHora -> naš CK fix; fallback: Swiss)
+#   /chart
 # -----------------------------
 @app.get("/chart")
 def chart(
     name: str = Query(...),
-    date: str = Query(...),     # YYYY-MM-DD (lokalni datum)
-    time: str = Query(...),     # HH:MM     (lokalni čas, 24h)
-    place: str = Query(...),    # echo
-    lat: float = Query(...),    # +N
-    lon: float = Query(...),    # +E
-    tz:  float = Query(...),    # ure (SLO: zima 1, poletje 2)
+    date: str = Query(...),
+    time: str = Query(...),
+    place: str = Query(...),
+    lat: float = Query(...),
+    lon: float = Query(...),
+    tz:  float = Query(...),
 ):
-    # --- poskus PyJHora (CK vedno preračunamo po naši metodi, z MEAN NODE) ---
     try:
         from jhora.engine.astro_engine import run as jrun
         import swisseph as swe
 
         res = jrun(name, date, time, place)
-
-        # JD_UT iz lokalnega časa + TZ
-        y, m, d = [int(x) for x in date.split("-")]
-        hh, mm = [int(x) for x in time.split(":")]
-        hour_ut = (hh + mm/60.0) - tz
-        jd_ut = swe.julday(y, m, d, hour_ut, swe.GREG_CAL)
+        y,m,d = map(int, date.split("-"))
+        hh,mm = map(int, time.split(":"))
+        jd_ut = swe.julday(y, m, d, (hh+mm/60.0)-tz, swe.GREG_CAL)
 
         lons = _sidereal_longitudes_mean_node(jd_ut)
         kar7, kar8 = _chara_karakas_from_lons(lons)
@@ -138,53 +113,49 @@ def chart(
             "source": "PyJHora+CKfix(mean_node)",
             "ascendant": res["summary"]["ascendant"]["text"],
             "moon_nakshatra": res["summary"]["moon_nakshatra"],
+            "chara_karakas": kar8,      # 🔹 privzeto 8-karaka (Rahu vključen)
             "chara_karakas_7": kar7,
             "chara_karakas_8": kar8
         }
     except Exception:
         pass
 
-    # --- fallback: Swiss Ephemeris (MEAN NODE) ---
+    # --- fallback: Swiss Ephemeris ---
     try:
         import swisseph as swe
-        y, m, d = [int(x) for x in date.split("-")]
-        hh, mm = [int(x) for x in time.split(":")]
-        hour_dec = hh + mm/60.0
-        hour_ut = hour_dec - tz
-        jd_ut = swe.julday(y, m, d, hour_ut, swe.GREG_CAL)
-
+        y,m,d = map(int, date.split("-"))
+        hh,mm = map(int, time.split(":"))
+        jd_ut = swe.julday(y, m, d, (hh+mm/60.0)-tz, swe.GREG_CAL)
         swe.set_sid_mode(swe.SIDM_LAHIRI, 0, 0)
         flag = swe.FLG_SWIEPH | swe.FLG_SIDEREAL
 
-        # Moon & nakshatra
         moon_lon = swe.calc_ut(jd_ut, swe.MOON, flag)[0][0]
-        idx = int(math.floor((moon_lon / 360.0) * 27.0)) % 27
+        idx = int((moon_lon / 360.0) * 27.0) % 27
         nak = NAKSHATRAS[idx]
-
-        # Ascendant
-        ascmc, _ = swe.houses_ex(jd_ut, lat, lon, b'P')
+        ascmc,_ = swe.houses_ex(jd_ut, lat, lon, b'P')
         asc_deg = ascmc[0]
         zodiac = ["Aries","Taurus","Gemini","Cancer","Leo","Virgo",
                   "Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces"]
         asc_sign = zodiac[int(asc_deg // 30)]
 
-        # Chara Karakas (JHora-style, MEAN NODE)
         lons = _sidereal_longitudes_mean_node(jd_ut)
         kar7, kar8 = _chara_karakas_from_lons(lons)
 
         return {
             "source": "SwissEphemeris(mean_node)",
             "echo": {"name": name, "place": place},
-            "ascendant": {"degree": round(asc_deg, 2), "sign": asc_sign},
-            "moon": {"longitude": round(moon_lon, 2), "nakshatra": nak},
+            "ascendant": {"degree": round(asc_deg,2), "sign": asc_sign},
+            "moon": {"longitude": round(moon_lon,2), "nakshatra": nak},
+            "chara_karakas": kar8,
             "chara_karakas_7": kar7,
             "chara_karakas_8": kar8
         }
     except Exception as e:
         return {"error": f"fallback_failed: {e}"}
 
+
 # -----------------------------
-#   SLO chart_smart (lokalna mini baza)
+#   Lokalna SLO baza
 # -----------------------------
 CITY_DB = {
     "maribor": (46.56, 15.65, "Europe/Ljubljana"),
@@ -201,125 +172,68 @@ CITY_DB = {
 
 def _find_city(place: str):
     p = (place or "").lower().strip()
-    if p in CITY_DB:
-        return CITY_DB[p]
-    for name, tpl in CITY_DB.items():
-        if name in p:
-            return tpl
+    if p in CITY_DB: return CITY_DB[p]
+    for name,tpl in CITY_DB.items():
+        if name in p: return tpl
     return None
 
 @app.get("/chart_smart")
-def chart_smart(
-    name: str = Query(...),
-    date: str = Query(...),
-    time: str = Query(...),
-    place: str = Query(...),
-):
+def chart_smart(name: str, date: str, time: str, place: str):
     city = _find_city(place)
     if not city:
-        return {"error": "unknown_place", "hint": "Uporabi eno izmed: " + ", ".join(CITY_DB.keys())}
-    lat, lon, tzid = city
-    try:
-        y, m, d = [int(x) for x in date.split("-")]
-        hh, mm = [int(x) for x in time.split(":")]
-        local_dt = datetime(y, m, d, hh, mm, tzinfo=ZoneInfo(tzid))
-        tz_offset_hours = local_dt.utcoffset().total_seconds() / 3600.0
-    except Exception as e:
-        return {"error": f"bad_datetime: {e}"}
-    return chart(name=name, date=date, time=time, place=place, lat=lat, lon=lon, tz=tz_offset_hours)
+        return {"error":"unknown_place","hint":"Uporabi eno izmed: "+", ".join(CITY_DB.keys())}
+    lat,lon,tzid = city
+    y,m,d = map(int, date.split("-"))
+    hh,mm = map(int, time.split(":"))
+    local_dt = datetime(y,m,d,hh,mm,tzinfo=ZoneInfo(tzid))
+    tz_offset = local_dt.utcoffset().total_seconds()/3600.0
+    return chart(name=name,date=date,time=time,place=place,lat=lat,lon=lon,tz=tz_offset)
+
 
 # -----------------------------
-#   GLOBAL geocoder (offline)
-#   - geonamescache + timezonefinder
-#   - sprejme "City, CC" ali "City, CountryName"
+#   Globalni geocoder
 # -----------------------------
-def _geocode_global(place: str) -> Tuple[Optional[Tuple[float, float, str]], Optional[List[str]]]:
+def _geocode_global(place: str) -> Tuple[Optional[Tuple[float,float,str]], Optional[List[str]]]:
     import geonamescache
     from timezonefinder import TimezoneFinder
 
-    # normalizacija: "City,CC" / "City, CC" / "City, Country"
     raw = (place or "").strip()
-    if not raw:
-        return None, None
-    norm = raw.replace(" ,", ",").replace(", ", ",")
+    if not raw: return None,None
+    norm = raw.replace(" ,",",").replace(", ",",")
     parts = norm.split(",")
-    if len(parts) == 2:
-        city_raw, country_raw = parts[0].strip(), parts[1].strip()
-        cc_map = {
-            "slovenia": "SI", "slovenija": "SI",
-            "austria": "AT", "österreich": "AT", "oesterreich": "AT",
-            "croatia": "HR", "hrvatska": "HR",
-            "italy": "IT", "italia": "IT",
-            "germany": "DE", "deutschland": "DE",
-        }
-        country_cc = cc_map.get(country_raw.lower(), country_raw.upper())
+    if len(parts)==2:
+        city_raw,country_raw = parts[0].strip(),parts[1].strip()
+        cc_map = {"slovenia":"SI","slovenija":"SI","austria":"AT","österreich":"AT",
+                  "croatia":"HR","hrvatska":"HR","italy":"IT","italia":"IT",
+                  "germany":"DE","deutschland":"DE"}
+        country_cc = cc_map.get(country_raw.lower(),country_raw.upper())
         p = f"{city_raw}, {country_cc}".lower()
     else:
-        p = raw.lower().strip()
+        p = raw.lower()
 
-    gc = geonamescache.GeonamesCache()
-    cities = gc.get_cities()
-
-    def norm_name(c): return c["name"].lower().strip()
-    def name_cc(c):  return f"{c['name']}, {c['countrycode']}"
-    def norm_pair(c): return name_cc(c).lower()
-
-    candidates: List[dict] = []
-    for c in cities.values():
-        if p == norm_pair(c) or p == norm_name(c):
-            candidates.append(c)
-    if not candidates:
-        for c in cities.values():
-            if p in norm_name(c) or p in norm_pair(c):
-                candidates.append(c)
-    if not candidates:
-        return None, None
-
-    # Deduplikacija (ime, država)
-    seen = set()
-    uniq: List[dict] = []
-    for c in candidates:
-        k = (c["name"], c["countrycode"])
-        if k not in seen:
-            seen.add(k)
-            uniq.append(c)
-
-    if len(uniq) > 1:
-        options = [name_cc(c) for c in sorted(uniq, key=lambda x: x.get("population", 0), reverse=True)[:7]]
-        return None, options
-
-    c = uniq[0]
-    lat = float(c["latitude"])
-    lon = float(c["longitude"])
-    tzid = TimezoneFinder().timezone_at(lng=lon, lat=lat)
-    if not tzid:
-        return None, [name_cc(c)]
-    return (lat, lon, tzid), None
+    gc = geonamescache.GeonamesCache(); cities = gc.get_cities()
+    def name_cc(c): return f"{c['name']}, {c['countrycode']}"
+    candidates=[c for c in cities.values() if p in name_cc(c).lower()]
+    if not candidates: return None,None
+    uniq={ (c["name"],c["countrycode"]):c for c in candidates }.values()
+    if len(uniq)>1:
+        opts=[name_cc(c) for c in sorted(uniq,key=lambda x:x.get("population",0),reverse=True)[:7]]
+        return None,opts
+    c=list(uniq)[0]
+    lat,lon=float(c["latitude"]),float(c["longitude"])
+    tzid=TimezoneFinder().timezone_at(lng=lon,lat=lat)
+    if not tzid: return None,[name_cc(c)]
+    return (lat,lon,tzid),None
 
 @app.get("/chart_global")
-def chart_global(
-    name: str,
-    date: str,   # YYYY-MM-DD
-    time: str,   # HH:MM
-    place: str,  # "City, CC" ali "City, Country"
-):
-    raw = (place or "").strip()
-    if "," not in raw:
-        return {"error": "country_required", "hint": "Uporabi 'City, CC' (npr. 'Springfield, US' ali 'Paris, FR')"}
-
-    geo, options = _geocode_global(raw)
-    if options:
-        return {"error": "place_ambiguous", "options": options}
-    if not geo:
-        return {"error": "place_not_found", "hint": "Uporabi 'City, CC' (npr. 'Springfield, US')"}
-
-    lat, lon, tzid = geo
-    try:
-        y, m, d = [int(x) for x in date.split("-")]
-        hh, mm = [int(x) for x in time.split(":")]
-        local_dt = datetime(y, m, d, hh, mm, tzinfo=ZoneInfo(tzid))
-        tz_offset_hours = local_dt.utcoffset().total_seconds() / 3600.0
-    except Exception as e:
-        return {"error": f"bad_datetime: {e}"}
-
-    return chart(name=name, date=date, time=time, place=place, lat=lat, lon=lon, tz=tz_offset_hours)
+def chart_global(name: str,date: str,time: str,place: str):
+    if "," not in place:
+        return {"error":"country_required","hint":"Uporabi 'City, CC' (npr. 'Paris, FR')"}
+    geo,opts=_geocode_global(place)
+    if opts: return {"error":"place_ambiguous","options":opts}
+    if not geo: return {"error":"place_not_found"}
+    lat,lon,tzid=geo
+    y,m,d=map(int,date.split("-")); hh,mm=map(int,time.split(":"))
+    local_dt=datetime(y,m,d,hh,mm,tzinfo=ZoneInfo(tzid))
+    tz_off=local_dt.utcoffset().total_seconds()/3600.0
+    return chart(name=name,date=date,time=time,place=place,lat=lat,lon=lon,tz=tz_off)
