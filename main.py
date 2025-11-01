@@ -17,10 +17,14 @@ NAKSHATRAS = [
 
 # -----------------------------
 #   Jaimini ČARA-KARAKAS (JHora 7.32)
+#   - Lahiri ayanamša
+#   - Mean Node (Rahu)
+#   - Rang po 0–30° v znaku; Rahu = 30 − (lon % 30); Ketu izključen
 # -----------------------------
-def _sidereal_longitudes(jd_ut: float, use_true_node: bool = True):
+def _sidereal_longitudes_mean_node(jd_ut: float):
+    """Sidereal dolžine (0..360) za Sun..Saturn + Rahu (MEAN NODE), Lahiri."""
     import swisseph as swe
-    swe.set_sid_mode(swe.SIDM_LAHIRI, 0, 0)  # Lahiri / Chitrapaksha
+    swe.set_sid_mode(swe.SIDM_LAHIRI, 0, 0)   # JHora default: Lahiri (Chitrapaksha)
     flag = swe.FLG_SWIEPH | swe.FLG_SIDEREAL
 
     bodies = {
@@ -31,46 +35,46 @@ def _sidereal_longitudes(jd_ut: float, use_true_node: bool = True):
         "Jupiter": swe.JUPITER,
         "Venus": swe.VENUS,
         "Saturn": swe.SATURN,
+        "Rahu": swe.MEAN_NODE,  # 🔒 fiksno MEAN NODE, kot JHora 7.32
     }
-    node_id = swe.TRUE_NODE if use_true_node else swe.MEAN_NODE
-    bodies["Rahu"] = node_id  # Ketu ne vključujemo
 
     lons = {}
     for name, bid in bodies.items():
-        lons[name] = swe.calc_ut(jd_ut, bid, flag)[0][0]  # 0..360 sidereal
+        lons[name] = swe.calc_ut(jd_ut, bid, flag)[0][0]
     return lons
 
 def _chara_karakas_from_lons(lons: dict):
     """
-    Jaimini Chara Karakas po sistemu Jagannath Hora 7.32:
-    - Rangiranje po stopinjah ZNOTRAJ znaka (0–30°).
-    - Rahu: 30 - (lon % 30).
-    - Ketu izključen.
-    Vrne (kar7, kar8) -> 7-karaka (brez Rahuja) in 8-karaka (z Rahujem).
+    Jaimini Chara Karakas po Jagannath Hora 7.32:
+      - 8-karaka: Sun..Saturn + Rahu (Ketu izključen)
+      - 7-karaka: Sun..Saturn (brez Rahu)
+      - Rang po stopinjah ZNOTRAJ znaka (0–30)
+      - Rahu: 30 - (lon % 30)
+    Vrne (kar7, kar8)
     """
     def deg_in_sign(lon: float) -> float:
         return lon % 30.0
 
-    items = []
+    pairs = []
     for name, lon in lons.items():
         if name == "Ketu":
-            continue
+            continue  # nikoli
         if name == "Rahu":
-            val = 30.0 - (lon % 30.0)
+            merit = 30.0 - (lon % 30.0)
         else:
-            val = deg_in_sign(lon)
-        items.append((name, val))
+            merit = deg_in_sign(lon)
+        pairs.append((name, merit))
 
     # 8-karaka (Sun..Saturn + Rahu)
     eight_set = {"Sun","Moon","Mars","Mercury","Jupiter","Venus","Saturn","Rahu"}
-    items8 = [(n, m) for n, m in items if n in eight_set]
+    items8 = [(n, m) for n, m in pairs if n in eight_set]
     items8.sort(key=lambda x: x[1], reverse=True)
     labels8 = ["AK","AmK","BK","MK","PK","GK","DK","PiK"]
     kar8 = {labels8[i]: items8[i][0] for i in range(min(8, len(items8)))}
 
-    # 7-karaka (brez Rahuja)
+    # 7-karaka (brez Rahu)
     seven_set = eight_set - {"Rahu"}
-    items7 = [(n, m) for n, m in items if n in seven_set]
+    items7 = [(n, m) for n, m in pairs if n in seven_set]
     items7.sort(key=lambda x: x[1], reverse=True)
     labels7 = ["AK","AmK","BK","MK","PK","GK","DK"]
     kar7 = {labels7[i]: items7[i][0] for i in range(min(7, len(items7)))}
@@ -114,24 +118,24 @@ def chart(
     lon: float = Query(...),    # +E
     tz:  float = Query(...),    # ure (SLO: zima 1, poletje 2)
 ):
-    # --- poskus PyJHora (a CK vedno preračunamo po naši metodi) ---
+    # --- poskus PyJHora (CK vedno preračunamo po naši metodi, z MEAN NODE) ---
     try:
         from jhora.engine.astro_engine import run as jrun
         import swisseph as swe
 
         res = jrun(name, date, time, place)
 
-        # izračun JD_UT iz lokalnega časa + TZ
+        # JD_UT iz lokalnega časa + TZ
         y, m, d = [int(x) for x in date.split("-")]
         hh, mm = [int(x) for x in time.split(":")]
         hour_ut = (hh + mm/60.0) - tz
         jd_ut = swe.julday(y, m, d, hour_ut, swe.GREG_CAL)
 
-        lons = _sidereal_longitudes(jd_ut, use_true_node=True)
+        lons = _sidereal_longitudes_mean_node(jd_ut)
         kar7, kar8 = _chara_karakas_from_lons(lons)
 
         return {
-            "source": "PyJHora+CKfix",
+            "source": "PyJHora+CKfix(mean_node)",
             "ascendant": res["summary"]["ascendant"]["text"],
             "moon_nakshatra": res["summary"]["moon_nakshatra"],
             "chara_karakas_7": kar7,
@@ -140,7 +144,7 @@ def chart(
     except Exception:
         pass
 
-    # --- fallback: Swiss Ephemeris ---
+    # --- fallback: Swiss Ephemeris (MEAN NODE) ---
     try:
         import swisseph as swe
         y, m, d = [int(x) for x in date.split("-")]
@@ -164,12 +168,12 @@ def chart(
                   "Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces"]
         asc_sign = zodiac[int(asc_deg // 30)]
 
-        # Chara Karakas (JHora-style)
-        lons = _sidereal_longitudes(jd_ut, use_true_node=True)
+        # Chara Karakas (JHora-style, MEAN NODE)
+        lons = _sidereal_longitudes_mean_node(jd_ut)
         kar7, kar8 = _chara_karakas_from_lons(lons)
 
         return {
-            "source": "SwissEphemeris",
+            "source": "SwissEphemeris(mean_node)",
             "echo": {"name": name, "place": place},
             "ascendant": {"degree": round(asc_deg, 2), "sign": asc_sign},
             "moon": {"longitude": round(moon_lon, 2), "nakshatra": nak},
@@ -227,18 +231,13 @@ def chart_smart(
 # -----------------------------
 #   GLOBAL geocoder (offline)
 #   - geonamescache + timezonefinder
+#   - sprejme "City, CC" ali "City, CountryName"
 # -----------------------------
 def _geocode_global(place: str) -> Tuple[Optional[Tuple[float, float, str]], Optional[List[str]]]:
-    """
-    Vrne:
-      - (lat, lon, tzid), None  -> enoznačno mesto
-      - None, [možnosti]        -> več ujemanj (dvoumno)
-      - None, None              -> ni najdeno
-    """
     import geonamescache
     from timezonefinder import TimezoneFinder
 
-    # normalizacija: sprejmemo "City,CC", "City, CC", "City, Slovenia" ...
+    # normalizacija: "City,CC" / "City, CC" / "City, Country"
     raw = (place or "").strip()
     if not raw:
         return None, None
@@ -276,7 +275,7 @@ def _geocode_global(place: str) -> Tuple[Optional[Tuple[float, float, str]], Opt
     if not candidates:
         return None, None
 
-    # Deduplikacija po (ime, država)
+    # Deduplikacija (ime, država)
     seen = set()
     uniq: List[dict] = []
     for c in candidates:
@@ -302,7 +301,7 @@ def chart_global(
     name: str,
     date: str,   # YYYY-MM-DD
     time: str,   # HH:MM
-    place: str,  # "City, CC" (npr. "Maribor, SI")
+    place: str,  # "City, CC" ali "City, Country"
 ):
     raw = (place or "").strip()
     if "," not in raw:
