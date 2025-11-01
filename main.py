@@ -42,38 +42,29 @@ def _sidereal_longitudes(jd_ut: float, use_true_node: bool = True):
         lons[name] = swe.calc_ut(jd_ut, bid, flag)[0][0]  # 0..360 sidereal
     return lons
 
-def _chara_karakas_from_lons(lons: dict, include_rahu: bool = False):
+def _chara_karakas_from_lons(lons: dict, include_rahu: bool = True):
     """
-    Vrne seznam parov [(name, rank)], kjer rank 1=AK, 2=AmK, 3=BK, 4=MK, 5=PK, 6=GK, 7=DK, (8)=PiK.
-    Pravilo: primerjamo ZNOTRAJ znaka -> deg_in_sign = lon % 30.
-    Če include_rahu=True, za Rahu uporabimo 30 - (lon % 30).
+    Rangiranje po ABSOLUTNIH sidereal stopinjah (0–360) – JHora-style.
+    Rahu: uporabimo obrat v znaku (30 - (lon % 30)).
     """
-    def in_sign_deg(l):  # 0..30
-        return l % 30.0
-
     items = []
     for name, lon in lons.items():
         if name == "Rahu" and not include_rahu:
             continue
         if name == "Rahu" and include_rahu:
-            deg_in_sign = 30.0 - (lon % 30.0)  # Jaimini pravilo za Rahu
+            # obrnjena stopinja v znaku
+            eff = (math.floor(lon/30.0) * 30.0) + (30.0 - (lon % 30.0))
         else:
-            deg_in_sign = in_sign_deg(lon)
-        items.append((name, deg_in_sign))
+            eff = lon % 360.0
+        items.append((name, eff))
 
-    # razvrsti po padajoče (največ v znaku = AK)
     items.sort(key=lambda x: x[1], reverse=True)
-
-    # preslikava v oznake
     labels7 = ["AK", "AmK", "BK", "MK", "PK", "GK", "DK"]
     labels8 = ["AK", "AmK", "BK", "MK", "PK", "GK", "DK", "PiK"]
-
     out7 = {labels7[i]: items[i][0] for i in range(min(7, len(items)))}
-    if include_rahu and len(items) >= 8:
-        out8 = {labels8[i]: items[i][0] for i in range(8)}
-    else:
-        out8 = None
+    out8 = {labels8[i]: items[i][0] for i in range(8)} if include_rahu and len(items) >= 8 else None
     return out7, out8
+
 
 
 @app.get("/health")
