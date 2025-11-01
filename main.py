@@ -99,18 +99,34 @@ def chart(
     tz:  float = Query(...),    # ure (npr. SLO poleti 2, pozimi 1)
 ):
     """Najprej poskusi PyJHora, sicer Swiss Ephemeris fallback."""
-    # --- poskus PyJHora ---
+   
+        # --- poskus PyJHora ---
     try:
         from jhora.engine.astro_engine import run as jrun
+        import swisseph as swe
+
         res = jrun(name, date, time, place)
+
+        # izračunamo JD_UT iz podanega local time + tz
+        y, m, d = [int(x) for x in date.split("-")]
+        hh, mm   = [int(x) for x in time.split(":")]
+        hour_ut  = (hh + mm/60.0) - tz
+        jd_ut    = swe.julday(y, m, d, hour_ut, swe.GREG_CAL)
+
+        # vedno preračunamo Čara Karake po naši pravilni metodi
+        lons = _sidereal_longitudes(jd_ut, use_true_node=True)
+        kar7, kar8 = _chara_karakas_from_lons(lons, include_rahu=True)
+
         return {
-            "source": "PyJHora",
+            "source": "PyJHora+CKfix",
             "ascendant": res["summary"]["ascendant"]["text"],
             "moon_nakshatra": res["summary"]["moon_nakshatra"],
-            "chara_karakas": res["summary"]["chara_karakas"]
+            "chara_karakas_7": kar7,
+            "chara_karakas_8": kar8
         }
     except Exception:
         pass
+
 
     # --- fallback: Swiss Ephemeris ---
     try:
