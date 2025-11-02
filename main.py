@@ -58,21 +58,17 @@ def _chara_karakas_8(lons: Dict[str, float]) -> Dict[str, str]:
 # -----------------------------
 #   Bhave (Equal-House) – prva hiša od ascendent-stopinje
 # -----------------------------
-def _planets_by_bhava_equal(lons: Dict[str, float], asc_deg: float) -> Dict[str, int]:
-    """
-    Hiša1 začne pri asc_deg; vsak naslednji interval 30° = nova hiša.
-    Dodamo še Ketu (180° od Rahuja) informativno.
-    """
+def _planets_by_bhava(lons: Dict[str, float], asc_deg: float) -> Dict[str, int]:
     start = asc_deg % 360.0
-    out: Dict[str, int] = {}
+    out = {}
     lons_ext = dict(lons)
     lons_ext["Ketu"] = (lons["Rahu"] + 180.0) % 360.0
-
     for name, lon in lons_ext.items():
         diff = (lon - start) % 360.0
         house = int(diff // 30.0) + 1
         out[name] = house
     return out
+
 
 def _invert_dict_list(bhavas: Dict[str, int]) -> Dict[int, List[str]]:
     box: Dict[int, List[str]] = {i: [] for i in range(1, 13)}
