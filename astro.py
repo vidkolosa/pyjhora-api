@@ -42,7 +42,6 @@ def _extract_positions(res) -> dict:
         ...
       }
     """
-    # Kandidat 1: res["positions"]
     src = res.get("positions") or res.get("planets") or {}
     if not src and "raw" in res:
         src = res["raw"].get("positions") or res["raw"].get("planets") or {}
@@ -50,7 +49,6 @@ def _extract_positions(res) -> dict:
     out = {}
     for k, v in src.items():
         name = _norm_name(k)
-        # Podpiramo oblike: {"sign": i, "longitude": d} ali {"sign": i, "deg": d}
         if isinstance(v, dict):
             sign = int(v.get("sign") or v.get("rasi") or v.get("sign_index") or 0)
             deg = float(v.get("longitude") or v.get("deg") or v.get("deg_in_sign") or 0.0)
@@ -78,7 +76,6 @@ def compute_chara_karakas(positions: dict,
             abs_deg = _to_abs_deg(pos["sign"], pos["deg"])
         usable[name] = abs_deg % 360.0
 
-    # Omeji na 7 karak: Sun, Moon, Mars, Mercury, Jupiter, Venus, Saturn + (Rahu namesto Ketu)
     base_set = {"Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn"}
     if include_rahu:
         base_set.add("Rahu")
@@ -86,11 +83,8 @@ def compute_chara_karakas(positions: dict,
         usable.pop("Ketu", None)
 
     filtered = {k: v for k, v in usable.items() if k in base_set}
-
-    # Razvrsti padajoče (najvišja stopinja = AK)
     sorted_items = sorted(filtered.items(), key=lambda kv: kv[1], reverse=True)
 
-    # Dodeli oznake 7-karaka
     karakas = {}
     for i, (planet, _) in enumerate(sorted_items[:7]):
         karakas[KARAKA_ORDER_7[i]] = planet
@@ -100,11 +94,10 @@ def compute_chara_karakas(positions: dict,
 
 def generate_chart(name, date, time, place):
     """
-    Uporabi PyJHora engine za izračun ter JHora-kompatibilen ponovni izračun Čara Karak.
+    Uporabi astro_engine za izračun ter JHora-kompatibilen ponovni izračun Čara Karak.
     """
     res = ae.run(name, date, time, place)
 
-    # Poskusi dobiti surove pozicije; če jih ni, poskusi z ločenim klicem (če obstaja).
     positions = _extract_positions(res)
     if not positions and hasattr(ae, "positions"):
         try:
@@ -112,7 +105,6 @@ def generate_chart(name, date, time, place):
         except Exception:
             positions = {}
 
-    # Če imamo pozicije, JORA-natančen izračun; sicer pusti original (fallback).
     if positions:
         chara_karakas = compute_chara_karakas(positions, include_rahu=True, include_ketu=False)
     else:
