@@ -19,10 +19,6 @@ NAKSHATRAS = [
 #   Sidereal longitudes (Lahiri) – ALWAYS TRUE NODE
 # -----------------------------
 def _sidereal_longitudes_true(jd_ut: float) -> Dict[str, float]:
-    """
-    Vrne sidereal longitudes 0..360 za Sun..Saturn + Rahu (TRUE NODE).
-    Ayanamša: Lahiri (Chitrapaksha).
-    """
     import swisseph as swe
     swe.set_sid_mode(swe.SIDM_LAHIRI, 0, 0)
     flag = swe.FLG_SWIEPH | swe.FLG_SIDEREAL
@@ -35,7 +31,7 @@ def _sidereal_longitudes_true(jd_ut: float) -> Dict[str, float]:
         "Jupiter": swe.JUPITER,
         "Venus": swe.VENUS,
         "Saturn": swe.SATURN,
-        "Rahu": swe.TRUE_NODE,   # 🔒 vedno TRUE NODE
+        "Rahu": swe.TRUE_NODE,
     }
 
     lons = {}
@@ -45,7 +41,6 @@ def _sidereal_longitudes_true(jd_ut: float) -> Dict[str, float]:
 
 # -----------------------------
 #   Čara Karakas (8-karaka, Rahu vključen; Ketu izključen)
-#   Rang po 0–30° v znaku; Rahu = 30 − (lon % 30)
 # -----------------------------
 def _chara_karakas_8(lons: Dict[str, float]) -> Dict[str, str]:
     def deg_in_sign(l): return l % 30.0
@@ -64,11 +59,7 @@ def _chara_karakas_8(lons: Dict[str, float]) -> Dict[str, str]:
 #   Bhave (Whole-Sign) – Rāši
 # -----------------------------
 def _planets_by_bhava(lons: Dict[str, float], asc_deg: float) -> Dict[str, int]:
-    """
-    Whole-Sign houses: house = ((planet_sign - asc_sign) % 12) + 1
-    Dodamo še Ketu (180° od Rahuja) informativno.
-    """
-    asc_sign = int(asc_deg // 30)  # 0..11
+    asc_sign = int(asc_deg // 30)
     out: Dict[str, int] = {}
     lons_ext = dict(lons)
     lons_ext["Ketu"] = (lons["Rahu"] + 180.0) % 360.0
@@ -108,30 +99,27 @@ def jhora_info():
     return info
 
 # -----------------------------
-#   /chart (PyJHora za tekste; numeriko računamo TU) – TRUE NODE
+#   /chart
 # -----------------------------
 @app.get("/chart")
 def chart(
     name: str = Query(...),
-    date: str = Query(...),     # YYYY-MM-DD (lokalni datum)
-    time: str = Query(...),     # HH:MM (lokalni čas, 24h)
-    place: str = Query(...),    # echo
-    lat: float = Query(...),    # +N
-    lon: float = Query(...),    # +E
-    tz:  float = Query(...),    # ure (SLO: zima 1, poletje 2)
+    date: str = Query(...),
+    time: str = Query(...),
+    place: str = Query(...),
+    lat: float = Query(...),
+    lon: float = Query(...),
+    tz:  float = Query(...),
 ):
-    # 1) PyJHora za tekst; če pade, gremo na Swiss-only spodaj
     try:
         from jhora.engine.astro_engine import run as jrun
         import swisseph as swe
 
         res = jrun(name, date, time, place)
-
         y, m, d = map(int, date.split("-"))
         hh, mm = map(int, time.split(":"))
         jd_ut = swe.julday(y, m, d, (hh + mm/60.0) - tz, swe.GREG_CAL)
 
-        # Ascendant degree (za bhave)
         ascmc, _ = swe.houses_ex(jd_ut, lat, lon, b'P')
         asc_deg = ascmc[0]
 
@@ -143,7 +131,7 @@ def chart(
             "source": "PyJHora+CK(TrueNode+Lahiri)",
             "ascendant": res["summary"]["ascendant"]["text"],
             "moon_nakshatra": res["summary"]["moon_nakshatra"],
-            "chara_karakas": kar8,               # 🔹 samo 8-karaka
+            "chara_karakas": kar8,
             "asc_degree": round(asc_deg, 2),
             "bhavas": bhavas,
             "planets_by_house": _invert_dict_list(bhavas)
@@ -151,7 +139,6 @@ def chart(
     except Exception:
         pass
 
-    # 2) Fallback: Swiss Ephemeris (True Node + Lahiri)
     try:
         import swisseph as swe
         y, m, d = map(int, date.split("-"))
@@ -161,12 +148,10 @@ def chart(
         swe.set_sid_mode(swe.SIDM_LAHIRI, 0, 0)
         flag = swe.FLG_SWIEPH | swe.FLG_SIDEREAL
 
-        # Luna & nakšatra (informativno)
         moon_lon = swe.calc_ut(jd_ut, swe.MOON, flag)[0][0]
         idx = int((moon_lon / 360.0) * 27.0) % 27
         nak = NAKSHATRAS[idx]
 
-        # Ascendant (za bhave)
         ascmc, _ = swe.houses_ex(jd_ut, lat, lon, b'P')
         asc_deg = ascmc[0]
         zodiac = ["Aries","Taurus","Gemini","Cancer","Leo","Virgo",
@@ -190,7 +175,7 @@ def chart(
         return {"error": f"fallback_failed: {e}"}
 
 # -----------------------------
-#   chart_smart (SLO mesta)
+#   chart_smart
 # -----------------------------
 CITY_DB = {
     "maribor": (46.56, 15.65, "Europe/Ljubljana"),
@@ -223,7 +208,7 @@ def chart_smart(name: str, date: str, time: str, place: str):
     return chart(name=name,date=date,time=time,place=place,lat=lat,lon=lon,tz=tz_off)
 
 # -----------------------------
-#   chart_global (geocoder)
+#   chart_global
 # -----------------------------
 def _geocode_global(place: str) -> Tuple[Optional[Tuple[float,float,str]], Optional[List[str]]]:
     import geonamescache
@@ -262,7 +247,7 @@ def chart_global(name: str, date: str, time: str, place: str):
     geo,opts=_geocode_global(place)
     if opts: return {"error":"place_ambiguous","options":opts}
     if not geo: return {"error":"place_not_found"}
-    lat,lon,tzid=geo
+    lat,lon,tzid = geo
     y,m,d=map(int,date.split("-")); hh,mm=map(int,time.split(":"))
     local_dt=datetime(y,m,d,hh,mm,tzinfo=ZoneInfo(tzid))
     tz_off=local_dt.utcoffset().total_seconds()/3600.0
