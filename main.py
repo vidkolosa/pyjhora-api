@@ -11,14 +11,14 @@ NAKSHATRAS = [
     "Ashvini","Bharani","Krittika","Rohini","Mrigashira","Ardra","Punarvasu",
     "Pushya","Ashlesha","Magha","Purva Phalguni","Uttara Phalguni","Hasta",
     "Chitra","Swati","Vishakha","Anuradha","Jyeshtha","Mula","Purva Ashadha",
-    "Uttara Ashadha","Shravana","Dhanishta","Shatabhisha","Purva Bhadrapada",
+    "Uttara Ashadha","Shravna","Dhanishta","Shatabhisha","Purva Bhadrapada",
     "Uttara Bhadrapada","Revati"
 ]
 
 # -----------------------------
-#   Sidereal longitudes (Lahiri) – ALWAYS TRUE NODE
+#   Sidereal longitudes (Lahiri) – ALWAYS MEAN NODE
 # -----------------------------
-def _sidereal_longitudes_true(jd_ut: float) -> Dict[str, float]:
+def _sidereal_longitudes_mean(jd_ut: float) -> Dict[str, float]:
     import swisseph as swe
     swe.set_sid_mode(swe.SIDM_LAHIRI, 0, 0)
     flag = swe.FLG_SWIEPH | swe.FLG_SIDEREAL
@@ -31,7 +31,7 @@ def _sidereal_longitudes_true(jd_ut: float) -> Dict[str, float]:
         "Jupiter": swe.JUPITER,
         "Venus": swe.VENUS,
         "Saturn": swe.SATURN,
-        "Rahu": swe.TRUE_NODE,
+        "Rahu": swe.MEAN_NODE,   # ➤ MEAN NODE
     }
 
     lons = {}
@@ -56,24 +56,28 @@ def _chara_karakas_8(lons: Dict[str, float]) -> Dict[str, str]:
     return {labels8[i]: pairs[i][0] for i in range(min(8, len(pairs)))}
 
 # -----------------------------
-#   Bhave (Whole-Sign) – Rāši
+#   Bhave (Equal-House) – prva hiša od ascendent-stopinje
 # -----------------------------
-def _planets_by_bhava(lons: Dict[str, float], asc_deg: float) -> Dict[str, int]:
-    asc_sign = int(asc_deg // 30)
+def _planets_by_bhava_equal(lons: Dict[str, float], asc_deg: float) -> Dict[str, int]:
+    """
+    Hiša1 začne pri asc_deg; vsak naslednji interval 30° = nova hiša.
+    Dodamo še Ketu (180° od Rahuja) informativno.
+    """
+    start = asc_deg % 360.0
     out: Dict[str, int] = {}
     lons_ext = dict(lons)
     lons_ext["Ketu"] = (lons["Rahu"] + 180.0) % 360.0
 
     for name, lon in lons_ext.items():
-        sign = int(lon // 30)
-        house = ((sign - asc_sign) % 12) + 1
+        diff = (lon - start) % 360.0
+        house = int(diff // 30.0) + 1
         out[name] = house
     return out
 
 def _invert_dict_list(bhavas: Dict[str, int]) -> Dict[int, List[str]]:
     box: Dict[int, List[str]] = {i: [] for i in range(1, 13)}
-    for g, h in bhavas.items():
-        box[h].append(g)
+    for name, house in bhavas.items():
+        box[house].append(name)
     for h in box:
         box[h].sort()
     return box
@@ -120,15 +124,16 @@ def chart(
         hh, mm = map(int, time.split(":"))
         jd_ut = swe.julday(y, m, d, (hh + mm/60.0) - tz, swe.GREG_CAL)
 
+        # Ascendant stopinja
         ascmc, _ = swe.houses_ex(jd_ut, lat, lon, b'P')
         asc_deg = ascmc[0]
 
-        lons = _sidereal_longitudes_true(jd_ut)
+        lons = _sidereal_longitudes_mean(jd_ut)
         kar8 = _chara_karakas_8(lons)
-        bhavas = _planets_by_bhava(lons, asc_deg)
+        bhavas = _planets_by_bhava_equal(lons, asc_deg)
 
         return {
-            "source": "PyJHora+CK(TrueNode+Lahiri)",
+            "source": "PyJHora+CK(MeanNode+Lahiri)",
             "ascendant": res["summary"]["ascendant"]["text"],
             "moon_nakshatra": res["summary"]["moon_nakshatra"],
             "chara_karakas": kar8,
@@ -158,12 +163,12 @@ def chart(
                   "Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces"]
         asc_sign = zodiac[int(asc_deg // 30)]
 
-        lons = _sidereal_longitudes_true(jd_ut)
+        lons = _sidereal_longitudes_mean(jd_ut)
         kar8 = _chara_karakas_8(lons)
-        bhavas = _planets_by_bhava(lons, asc_deg)
+        bhavas = _planets_by_bhava_equal(lons, asc_deg)
 
         return {
-            "source": "SwissEphemeris(TrueNode+Lahiri)",
+            "source": "SwissEphemeris(MeanNode+Lahiri)",
             "echo": {"name": name, "place": place},
             "ascendant": {"degree": round(asc_deg, 2), "sign": asc_sign},
             "moon": {"longitude": round(moon_lon, 2), "nakshatra": nak},
@@ -247,7 +252,7 @@ def chart_global(name: str, date: str, time: str, place: str):
     geo,opts=_geocode_global(place)
     if opts: return {"error":"place_ambiguous","options":opts}
     if not geo: return {"error":"place_not_found"}
-    lat,lon,tzid = geo
+    lat,lon,tzid=geo
     y,m,d=map(int,date.split("-")); hh,mm=map(int,time.split(":"))
     local_dt=datetime(y,m,d,hh,mm,tzinfo=ZoneInfo(tzid))
     tz_off=local_dt.utcoffset().total_seconds()/3600.0
